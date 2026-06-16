@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -5,35 +7,53 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from config import settings
 from database import engine, Base
+import models  # noqa: F401 — registers models with Base
 
-# Import models so SQLAlchemy registers them with Base before create_all
-import models  # noqa: F401
+from honeypot.ssh import start_ssh_honeypot
+from honeypot.http_trap import start_http_honeypot
+from honeypot.ftp import start_ftp_honeypot
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(name)s] %(levelname)s — %(message)s",
+)
+logger = logging.getLogger("honeywatch")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # ── Startup ──────────────────────────────────────────────
-    # Create all DB tables if they don't exist
+    # ── Startup ───────────────────────────────────────────────
     Base.metadata.create_all(bind=engine)
 
-    # Honeypot listeners will be started here in Phase 2
-    print("HoneyWatch API started")
-    print(f"Environment : {settings.environment}")
-    print(f"SSH trap    : port {settings.ssh_trap_port}")
-    print(f"HTTP trap   : port {settings.http_trap_port}")
-    print(f"FTP trap    : port {settings.ftp_trap_port}")
+    # Start all three honeypot listeners as async background servers
+    ssh_server  = await start_ssh_honeypot()
+    http_server = await start_http_honeypot()
+    ftp_server  = await start_ftp_honeypot()
 
-    yield
+    logger.info("HoneyWatch is live — all honeypots running")
+    logger.info("SSH  trap → port %s", settings.ssh_trap_port)
+    logger.info("HTTP trap → port %s", settings.http_trap_port)
+    logger.info("FTP  trap → port %s", settings.ftp_trap_port)
 
-    # ── Shutdown ─────────────────────────────────────────────
-    # Honeypot listeners will be stopped here in Phase 2
-    print("HoneyWatch API shutting down")
+    yield  # app runs here
+
+    # ── Shutdown ──────────────────────────────────────────────
+    ssh_server.close()
+    http_server.close()
+    ftp_server.close()
+
+    await asyncio.gather(
+        ssh_server.wait_closed(),
+        http_server.wait_closed(),
+        ftp_server.wait_closed(),
+    )
+    logger.info("HoneyWatch shut down cleanly")
 
 
 app = FastAPI(
     title="HoneyWatch",
     description="Low-interaction honeypot with live attack dashboard.",
-    version="0.1.0",
+    version="0.2.0",
     lifespan=lifespan,
 )
 
@@ -51,9 +71,13 @@ app.add_middleware(
 
 @app.get("/health", tags=["system"])
 def health_check():
-    """Liveness probe — used by Docker and monitoring tools."""
     return {
         "status": "ok",
         "environment": settings.environment,
-        "version": "0.1.0",
+        "version": "0.2.0",
+        "honeypots": {
+            "ssh":  f"port {settings.ssh_trap_port}",
+            "http": f"port {settings.http_trap_port}",
+            "ftp":  f"port {settings.ftp_trap_port}",
+        },
     }
