@@ -12,6 +12,7 @@ import models  # noqa: F401 — registers models with Base
 from honeypot.ssh import start_ssh_honeypot
 from honeypot.http_trap import start_http_honeypot
 from honeypot.ftp import start_ftp_honeypot
+from api.events import router as events_router  # ← added
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,7 +26,7 @@ async def lifespan(app: FastAPI):
     # ── Startup ───────────────────────────────────────────────
     Base.metadata.create_all(bind=engine)
 
-    # Start all three honeypot listeners as async background servers
+    # Start honeypot listeners
     ssh_server  = await start_ssh_honeypot()
     http_server = await start_http_honeypot()
     ftp_server  = await start_ftp_honeypot()
@@ -35,7 +36,7 @@ async def lifespan(app: FastAPI):
     logger.info("HTTP trap → port %s", settings.http_trap_port)
     logger.info("FTP  trap → port %s", settings.ftp_trap_port)
 
-    yield  # app runs here
+    yield
 
     # ── Shutdown ──────────────────────────────────────────────
     ssh_server.close()
@@ -53,7 +54,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="HoneyWatch",
     description="Low-interaction honeypot with live attack dashboard.",
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 
@@ -68,13 +69,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Register API routes
+app.include_router(events_router)  # ← added
+
 
 @app.get("/health", tags=["system"])
 def health_check():
     return {
         "status": "ok",
         "environment": settings.environment,
-        "version": "0.2.0",
+        "version": "0.3.0",
         "honeypots": {
             "ssh":  f"port {settings.ssh_trap_port}",
             "http": f"port {settings.http_trap_port}",
