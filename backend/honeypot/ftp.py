@@ -135,7 +135,7 @@ def _save_event(
         )
         db.add(event)
         db.commit()
-        logger.info("FTP | %s | event saved (severity=%s)", source_ip, severity)
+        logger.info("FTP | %s | event saved (severity=%s)", source_ip, severity.value)
     except Exception as exc:
         db.rollback()
         logger.error("FTP | %s | DB error: %s", source_ip, exc)

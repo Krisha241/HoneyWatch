@@ -140,7 +140,7 @@ def _save_event(
         )
         db.add(event)
         db.commit()
-        logger.info("SSH | %s | event saved (severity=%s)", source_ip, severity)
+        logger.info("SSH | %s | event saved (severity=%s)", source_ip, severity.value)
     except Exception as exc:
         db.rollback()
         logger.error("SSH | %s | DB error: %s", source_ip, exc)
